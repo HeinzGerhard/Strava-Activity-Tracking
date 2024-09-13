@@ -1,0 +1,9 @@
+DEM/*
+stathunters/*
+data/*
+*.res
+.mapbox_token
+*.gpx
+*.fit
+DEM
+/DEM/

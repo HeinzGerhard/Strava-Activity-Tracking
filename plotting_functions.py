@@ -95,7 +95,6 @@ def create_time_series(dff, axis_type, title, values, smoothing):
             colors = [
                 'blue' if i < 2 else 'green' if i < 3 else 'yellow' if i < 4 else 'orange' if i < 5 else 'red' for i in
                 dff['Power Zone']]
-            #fig = px.scatter(dff, x=axis_type, y='Power', color=value)
             fig.add_trace(
                 go.Scatter(x=dff[axis_type], y=dff['Power'], name=value, fillcolor='red'),
                 secondary_y=idx%2!=0,
@@ -108,7 +107,6 @@ def create_time_series(dff, axis_type, title, values, smoothing):
                 if i != None else 'black' for i in dff['Heart Rate Zone']]
             dff['Heart Rate Zones'] = colors
             dff['Heart Rate'] = dff['Heart Rate'].rolling(smoothing-1).mean()
-            #fig = px.scatter(dff, x=axis_type, y='Heart Rate', color=value)
             fig.add_trace(
                 go.Scatter(x=dff[axis_type], y=dff['Heart Rate'], name=value, fillcolor='red',
                            customdata=dff[['Name', 'Heart Rate', 'Distance', 'Duration', 'Heart Rate Zones']],
@@ -128,7 +126,6 @@ def create_time_series(dff, axis_type, title, values, smoothing):
             value = 'Altitude'
         elif value =='Calories':
             dff['Calories'] = dff['Accumulated Power']/862.6524312896405919661733615222
-            #fig = px.scatter(dff, x=axis_type, y='Altitude', color='Name')
 
         for name in dff['Name'].unique():
             dfn = dff[dff['Name']==name]
@@ -145,13 +142,10 @@ def create_time_series(dff, axis_type, title, values, smoothing):
                                 "<extra></extra>",),
                 secondary_y=idx%2!=0,
             )
-        # Set x-axis title
         fig.update_xaxes(title_text=axis_type)
         fig.update_layout(showlegend=False)
-        #return fig
 
-        #fig = px.scatter(dff, x=axis_type, y=value, color='Name')
-        #fig.update_traces(mode='lines')
+
     fig.update_xaxes(showgrid=False)
     fig.add_annotation(x=0, y=0.85, xanchor='left', yanchor='bottom',
                        xref='paper', yref='paper', showarrow=False, align='left',
