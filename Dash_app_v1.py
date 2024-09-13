@@ -36,7 +36,6 @@ app = Dash(server=server, external_stylesheets=external_stylesheets)
 colorscales = px.colors.named_colorscales()
 
 daterange = pd.date_range(start='2021', end='2024', freq='W')  # Todo
-dff = df.iloc[::230, :]
 fig = go.Figure()
 fig.update_layout(margin={'l': 0, 't': 0, 'b': 0, 'r': 0},
                   mapbox={
@@ -48,33 +47,13 @@ fig.update_layout(margin={'l': 0, 't': 0, 'b': 0, 'r': 0},
                   # width=1600,
                   height=550,
                   showlegend=False)
-data = go.Scattermapbox(
-    lon=dff['Long'],
-    lat=dff['Lat'],
-    mode='markers',
-    name='point',
-    customdata=dff[['Name', 'Elevation', 'Distance', 'Duration']],
-    hovertemplate=
-    "<b>%{customdata[0]}</b><br>" +
-    "<b>Elevation: %{customdata[1]}</b><br><br>" +
-    "Distance: %{customdata[2]:,.2f}<br>" +
-    "Duration: %{customdata[3]:.2f}<br>" +
-    "<extra></extra>",
-    marker=go.scattermapbox.Marker(color=list(dff['Elevation']),
-                                   size=5,
-                                   colorscale='rainbow',  # one of plotly colorscales
-                                   showscale=True,
-                                   # text=dff['Name']
-                                   )
-)
-fig.add_trace(data)
 
 app.layout = html.Div([
     html.Div([
         html.Div([
             dcc.Dropdown(
                 options=names,
-                value=[names[-1]],
+                value=[names[0]],
                 id='crossfilter-activity-name',
                 multi=True
             ),
