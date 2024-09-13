@@ -49,7 +49,6 @@ def update_x_timeseries(df, activity_name,yaxis_column_name,  axis_type, append,
                 timezone_str = 'Europe/Oslo'
                 if 'Zwift' not in activity_name[0]:
                     tf = timezonefinder.TimezoneFinder()
-                    #print(f'{dff.iloc[0].Lat},{dff.iloc[0].Long}')
                     for index, row in dff.iterrows():
                         print(f'{row.Lat = },{row.Long = }')
                         if not math.isnan(row.Lat) and not math.isnan(row.Long):
@@ -96,10 +95,11 @@ def create_time_series(dff, axis_type, title, values, smoothing):
                 'blue' if i < 2 else 'green' if i < 3 else 'yellow' if i < 4 else 'orange' if i < 5 else 'red' for i in
                 dff['Power Zone']]
             fig.add_trace(
-                go.Scatter(x=dff[axis_type], y=dff['Power'], name=value, fillcolor='red'),
-                secondary_y=idx%2!=0,
+                go.Scatter(x=dff[axis_type], y=dff['Power'], name=value, fillcolor='red',
+                           marker=dict(color=colors, opacity=1),
+                           mode='markers',),
+                secondary_y=idx%2!=0
             )
-            fig.update_traces(mode='markers')
             continue
         elif value =='Heart Rate Zone':
             colors = [
@@ -109,17 +109,18 @@ def create_time_series(dff, axis_type, title, values, smoothing):
             dff['Heart Rate'] = dff['Heart Rate'].rolling(smoothing-1).mean()
             fig.add_trace(
                 go.Scatter(x=dff[axis_type], y=dff['Heart Rate'], name=value, fillcolor='red',
-                           customdata=dff[['Name', 'Heart Rate', 'Distance', 'Duration', 'Heart Rate Zones']],
-                           hovertemplate=
-                                "<b>%{customdata[0]}</b><br>" +
-                                "<b>Heart Rate: %{customdata[1]}</b><br><br>" +
-                                "<b>Heart Rate Zone: %{customdata[4]}</b><br><br>" +
-                                "Distance: %{customdata[2]:,.2f} km<br>" +
-                                "Duration: %{customdata[3]:.2f} min<br>" +
-                                "<extra></extra>",),
-                secondary_y=idx%2!=0,
+                   customdata=dff[['Name', 'Heart Rate', 'Distance', 'Duration', 'Heart Rate Zones']],
+                   mode='markers',
+                   hovertemplate=
+                        "<b>%{customdata[0]}</b><br>" +
+                        "<b>Heart Rate: %{customdata[1]}</b><br><br>" +
+                        "<b>Heart Rate Zone: %{customdata[4]}</b><br><br>" +
+                        "Distance: %{customdata[2]:,.2f} km<br>" +
+                        "Duration: %{customdata[3]:.2f} min<br>" +
+                        "<extra></extra>",
+                   marker=dict(color=colors, opacity=1)),
+                   secondary_y=idx%2!=0,
             )
-            fig.update_traces(mode='markers')
             continue
         elif value =='Elevation':
             dff['Altitude'] = dff[value].rolling(smoothing+30).mean()
@@ -132,6 +133,7 @@ def create_time_series(dff, axis_type, title, values, smoothing):
             fig.add_trace(
                 go.Scatter(x=dfn[axis_type],
                            y=dfn[value].rolling(smoothing-1).mean(),
+                           mode='lines',
                            name=f'{name} {value}',
                            customdata=dfn[['Name', value, 'Distance', 'Duration']],
                            hovertemplate=

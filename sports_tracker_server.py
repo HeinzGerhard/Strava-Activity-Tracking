@@ -8,6 +8,9 @@ import geopandas as gpd
 import plotly.express as px
 import pickle
 import pandas as pd
+import main
+from main import Activity
+import pathlib
 
 from flask import Flask
 
@@ -16,7 +19,7 @@ px.set_mapbox_access_token(access_token)
 
 with open('./data_frame.res', "rb") as fp:
     df = pickle.load(fp)
-df.loc[df.Speed > 200, 'Speed'] = 0  ## Remove 232 Values from Strava Iphone
+df.loc[df.Speed > 120, 'Speed'] = 0  ## Remove 232 Values from Strava Iphone
 
 with open('./activity_names.res', "rb") as fp:
     activity_names = pickle.load(fp)
@@ -225,7 +228,6 @@ def update_value(activity_name, variable,
                  shift, start_date, end_date, smoothing, plot):
     if (plot.__contains__('point') or plot.__contains__('line')) and variable.__len__() > 0:
         patched_figure = Patch()
-
         global df
         dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
                                                       display, virtual, activity_type, append,
@@ -268,24 +270,20 @@ def update_graph(activity_name, variable,
                  shift, start_date, end_date, smoothing, plot):
     global df
     patched_figure = Patch()
-
+    print('Update Graph')
     dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
                                                   display, virtual, activity_type, append,
                                                   shift, start_date, end_date)
     for indx, dataset in enumerate(plot):
-        if dataset == 'point':
+        if dataset == 'point'or dataset == 'line' or dataset == 'heatmap':
             patched_figure['data'][indx]['lat'] = dff['Lat'].values
             patched_figure['data'][indx]['lon'] = dff['Long'].values
+        if dataset == 'line'or dataset == 'point':
             patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
+        elif dataset == 'point':
             patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing-1).mean())})
-    if dataset == 'line':
-            patched_figure['data'][indx]['lat'] = dff['Lat'].values
-            patched_figure['data'][indx]['lon'] = dff['Long'].values
-            patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
-    if dataset == 'heatmap':
-            patched_figure['data'][indx]['lat'] = dff['Lat'].values
-            patched_figure['data'][indx]['lon'] = dff['Long'].values
-    if dataset == 'Activity tiles':
+        elif dataset == 'activity tiles':
+            print('Update Activity Tiles')
             zoom = smoothing
             tiles = Tiles.check_tiles(zoom, dff)
             x = []
@@ -594,5 +592,82 @@ def update_overview_plots(activity_name, display, plot, axis_type, start_date, e
                                                     append, virtual, activity_type)
 
 
+@app.callback(
+    Output('crossfilter-activity-name', 'options',allow_duplicate=True),
+    Input('crossfilter-upload', 'filename'),
+    prevent_initial_call=True
+)
+def upload(filename):
+    print(f'Import {filename = }')
+    global df
+    if filename is not None:
+        activities = main.load_data_file()
+        activity=main.Activity()
+        path = pathlib.Path.home() / 'Downloads'
+        if filename.__contains__('.gpx'):
+            print('gpx File')
+            activity.load_file(path / filename)
+            activities.append(activity)
+        elif filename.__contains__('.tcx'):
+            print('tcx File')
+            activity.read_tcx(path / filename)
+            activities.append(activity)
+        else:
+            print('fit File')
+            activity.read_fit(path / filename)
+            activities.append(activity)
+
+        dfn = main.create_single_df(activity, np.max(df['Activity_Index'].unique())+1)
+        df = pd.concat([df, dfn])
+        with open("./data_frame.res", "wb") as fp:  # Pickling
+            pickle.dump(df, fp)
+        activities.append(activity)
+        with open("./activities.res", "wb") as fp:  # Pickling
+            pickle.dump(activities, fp)
+        for activity in activities:
+            activity.reduce()
+        with open("./activities_small.res", "wb") as fp:  # Pickling
+            pickle.dump(activities, fp)
+        del activities
+    print('Imported Data')
+    return np.flip(df['Name'].unique())
+
+
+@app.callback(
+    Output('crossfilter-activity-name', 'options', allow_duplicate=True),
+    Input('crossfilter-virtual', 'value'),
+    Input('my-date-picker-range', 'start_date'),
+    Input('my-date-picker-range', 'end_date'),
+    Input('crossfilter-activity-type', 'value'),
+    prevent_initial_call=True
+)
+def update_names(virtual,start_date, end_date, type):
+    global df
+
+    dff = main.get_subdataset(df.iloc[::60, :], start_date, end_date, 'All', '', '', virtual, type)
+
+    return np.flip(dff['Name'].unique())
+
+
+@app.callback(
+    Output('crossfilter-activity-name', 'options',allow_duplicate=True),
+    Input('btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def update_Button(btn):
+    global df
+    global update
+    if update:
+        print('Already Updating')
+    else:
+        update = True
+        main.load_Data_Strava_export()
+        main.Calculate_Polygons.analyse_activities()
+        with open('./data_frame.res', "rb") as fp:
+            df = pickle.load(fp)
+        main.calculate_eddington(df)
+        Tiles.analyse_dataframe(df)
+        update = False
+    return np.flip(df['Name'].unique())
 if __name__ == '__main__':
     app.run_server(host='0.0.0.0', debug=False, port=8055)
