@@ -26,7 +26,7 @@ with open('./data_frame_turistveger.res', "rb") as fp:
 
 update = False
 
-names = df['Name'].unique()
+names = np.flip(df.sort_values('DateTime')['Name'].unique())
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -80,7 +80,7 @@ app.layout = html.Div([
             ),
             html.Div([dcc.RadioItems(
                 ['Selected', 'All'],
-                'All',
+                'Selected',
                 id='crossfilter-display-selection',
                 labelStyle={'display': 'inline-block', 'marginTop': '10px'}
             )], style={'width': '20%', 'display': 'inline-block'}),
@@ -114,7 +114,7 @@ app.layout = html.Div([
             html.Div([
                 html.Div([dcc.Dropdown(
                     # df.columns,
-                    ['Duration', 'Distance', 'Date'],
+                    ['Duration', 'Distance', 'DateTime'],
                     'Distance',
                     id='crossfilter-yaxis-type',
                 )], style={'width': '49%', 'display': 'inline-block'}),
@@ -220,17 +220,61 @@ app.layout = html.Div([
                 multi=True
             )], style={'width': '23%', 'display': 'inline-block'}),
         html.Div([
-            dcc.Slider(1, 300, 25, value=1,
+            dcc.Slider(2, 14, 1, value=2,
                        id='crossfilter-smoothing',
                        )], style={'width': '32%', 'display': 'inline-block'}),
     ], style={'width': '49%', 'float': 'right', 'display': 'inline-block'}),
 ])
 
 
+
+@callback(
+    Output('crossfilter-indicator-scatter', 'figure', allow_duplicate=True),
+    State('crossfilter-activity-name', 'value'),
+    Input('crossfilter-yaxis-column', 'value'),
+    State('crossfilter-display-selection', 'value'),
+    State('crossfilter-virtual', 'value'),
+    State('crossfilter-activity-type', 'value'),
+    State('crossfilter-append', 'value'),
+    State('crossfilter-shift', 'value'),
+    State('my-date-picker-range', 'start_date'),
+    State('my-date-picker-range', 'end_date'),
+    State('crossfilter-smoothing', 'value'),
+    State('crossfilter-map-plot', 'value'), prevent_initial_call=True)
+def update_value(activity_name, variable,
+                 display, virtual, activity_type, append,
+                 shift, start_date, end_date, smoothing, plot):
+    if (plot.__contains__('point') or plot.__contains__('line')) and variable.__len__() > 0:
+        patched_figure = Patch()
+
+        global df
+        dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
+                                                      display, virtual, activity_type, append,
+                                                      shift, start_date, end_date)
+        for indx, dataset in enumerate(plot):
+            if dataset == 'point':
+                print(f'Point_Value_Change{variable[0] = },{indx = }')
+                patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
+                patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing-1).mean())})
+                patched_figure['data'][indx]['hovertemplate'] = ("<b>%{customdata[0]}</b><br>"
+                                                                 "<b>") + variable[0] + (": %{customdata[1]}</b><br><br>"
+                                                                 "Distance: %{customdata[2]:,.2f} km<br>"
+                                                                 "Duration: %{customdata[3]:.2f} min<br>"
+                                                                 "<extra></extra>")
+            if dataset == 'line':
+                    patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
+        return patched_figure
+    else:
+        print('No Change')
+        return Patch()
+
+
+
+
 @callback(
     Output('crossfilter-indicator-scatter', 'figure', allow_duplicate=True),
     Input('crossfilter-activity-name', 'value'),
-    Input('crossfilter-yaxis-column', 'value'),
+    State('crossfilter-yaxis-column', 'value'),
     Input('crossfilter-display-selection', 'value'),
     Input('crossfilter-virtual', 'value'),
     Input('crossfilter-activity-type', 'value'),
@@ -254,7 +298,7 @@ def update_graph(activity_name, variable,
             patched_figure['data'][indx]['lat'] = dff['Lat'].values
             patched_figure['data'][indx]['lon'] = dff['Long'].values
             patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
-            patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing).mean())})
+            patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing-1).mean())})
     if dataset == 'line':
             patched_figure['data'][indx]['lat'] = dff['Lat'].values
             patched_figure['data'][indx]['lon'] = dff['Long'].values
@@ -263,7 +307,7 @@ def update_graph(activity_name, variable,
             patched_figure['data'][indx]['lat'] = dff['Lat'].values
             patched_figure['data'][indx]['lon'] = dff['Long'].values
     if dataset == 'Activity tiles':
-            zoom = int(smoothing / 25 + 2)
+            zoom = smoothing
             tiles = Tiles.check_tiles(zoom, dff)
             x = []
             y = []
@@ -335,17 +379,16 @@ def update_append(plot, activity_name, variable,
     global df
     print(f'{variable = }')
     if variable.__len__()>0:
-        if variable[0] == 'Distance'or variable[0] == 'Duration':
-            if plot.__contains__('point'):
-                dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
-                                                              display, virtual, activity_type, append,
-                                                              shift, start_date, end_date)
-                patched_figure = Patch()
-                for indx, dataset in enumerate(plot):
-                    if dataset == 'point':
-                        patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
-                        patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing).mean())})
-                        return patched_figure
+        if plot.__contains__('point'):
+            dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
+                                                          display, virtual, activity_type, append,
+                                                          shift, start_date, end_date)
+            patched_figure = Patch()
+            for indx, dataset in enumerate(plot):
+                if dataset == 'point':
+                    patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
+                    patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing-1).mean())})
+                    return patched_figure
     return Patch()
 
 
@@ -365,7 +408,7 @@ def update_append(plot, activity_name, variable,
     State('crossfilter-map-type', 'value'),
     State('crossfilter-color-map', 'value'),
 
-    prevent_initial_call=True
+    prevent_initial_call='initial_duplicate'
 )
 def update_Map_plotting_type(plot, activity_name, variable,
                              display, virtual, activity_type, append,
@@ -398,7 +441,7 @@ def update_Map_plotting_type(plot, activity_name, variable,
                     "Distance: %{customdata[2]:,.2f} km<br>" +
                     "Duration: %{customdata[3]:.2f} min<br>" +
                     "<extra></extra>",
-                    marker=go.scattermapbox.Marker(color=list(dff[output_variable].rolling(smoothing).mean()),
+                    marker=go.scattermapbox.Marker(color=list(dff[output_variable].rolling(smoothing-1).mean()),
                                                    size=5,
                                                    colorscale=color_map,  # one of plotly colorscales
                                                    showscale=show_legend
@@ -429,7 +472,7 @@ def update_Map_plotting_type(plot, activity_name, variable,
         if value == 'heatmap':
             print('heatmap')
             heatmap = go.Densitymapbox(lat=dff['Lat'], lon=dff['Long'],  # z=dff['Speed'],
-                                       radius=int(smoothing / 10) + 1)
+                                       radius=int(smoothing))
             data.append(heatmap)
         if value == 'turistveger':
             turistveger = go.Scattermapbox(
@@ -472,9 +515,8 @@ def update_Map_plotting_type(plot, activity_name, variable,
             data.append(polygons_plot)
 
         # Tile plots
-        zoom = int(smoothing / 25 + 2)
-        if value == 'All tiles':
-            print(f'{zoom = }')
+        zoom = smoothing
+        if value == 'all tiles':
             long, lat = Tiles.generate_reduced_lines(zoom)
             data.append(go.Scattermapbox(
                 lon=long,
@@ -511,7 +553,7 @@ def update_Map_plotting_type(plot, activity_name, variable,
                 hoverinfo=None,
                 hoverlabel=None
             ))
-        if value == 'Activity tiles':
+        if value == 'activity tiles':
             tiles = Tiles.check_tiles(zoom, dff)
             x = []
             y = []

@@ -107,7 +107,7 @@ def create_time_series(dff, axis_type, title, values, smoothing):
                 'blue' if i < 2 else 'green' if i < 3 else 'yellow' if i < 4 else 'orange' if i < 5 else 'red'
                 if i != None else 'black' for i in dff['Heart Rate Zone']]
             dff['Heart Rate Zones'] = colors
-            dff['Heart Rate'] = dff['Heart Rate'].rolling(smoothing).mean()
+            dff['Heart Rate'] = dff['Heart Rate'].rolling(smoothing-1).mean()
             #fig = px.scatter(dff, x=axis_type, y='Heart Rate', color=value)
             fig.add_trace(
                 go.Scatter(x=dff[axis_type], y=dff['Heart Rate'], name=value, fillcolor='red',
@@ -134,9 +134,9 @@ def create_time_series(dff, axis_type, title, values, smoothing):
             dfn = dff[dff['Name']==name]
             fig.add_trace(
                 go.Scatter(x=dfn[axis_type],
-                           y=dfn[value].rolling(smoothing).mean(),
+                           y=dfn[value].rolling(smoothing-1).mean(),
                            name=f'{name} {value}',
-                           customdata=dff[['Name', value, 'Distance', 'Duration']],
+                           customdata=dfn[['Name', value, 'Distance', 'Duration']],
                            hovertemplate=
                                 "<b>%{customdata[0]}</b><br>" +
                                 "<b>"+value+": %{customdata[1]}</b><br><br>" +
