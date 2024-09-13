@@ -1,5 +1,4 @@
 
-import math
 import matplotlib.pyplot as plt
 import gpxpy
 import gpxpy.gpx
@@ -31,7 +30,7 @@ buffered_nasa_sets = {} # Buffer for the 30m NASA DEM Models https://dwtkns.com/
 debug = False
 # Load the DEM Model for Norway
 datasets = []
-files = glob.glob("./DEM/*.tif")# 50 M Model for the rest of Norway
+files = glob.glob("./DEM/**/*.tif", recursive=True)# 50 M Model for the rest of Norway
 for file in files:
     datasets.append(rasterio.open(file))
 
@@ -154,7 +153,6 @@ class Activity:
                 self.sport = message.sport_name
 
             if isinstance(message, ActivityMessage):
-                # print(f'duration {message.total_timer_time/3600}')
                 time = datetime.fromtimestamp(int(message.timestamp) / 1000)
                 self.year = time.year
                 self.timestamp = message.timestamp / 1000
@@ -169,7 +167,6 @@ class Activity:
                     self.distance.append((message.distance or old_dist)/1000)
                     self.elevation.append(fix_elevation_point(message.position_lat, message.position_long, message.altitude))
                     self.speed.append(message.speed if (message.speed or 0) < 200 else 0)
-                    #print(self.speed[-1])
                     self.lat.append(message.position_lat)
                     self.lon.append(message.position_long)
                     self.heart_rate.append(message.heart_rate)
@@ -181,7 +178,7 @@ class Activity:
 
         self.normalize_activity(file)
         end = timeit.time()
-        print(f'Total: {end - start}, reading: {loaded - start}' )
+        print(f'Duration File load: {end - start}, parsing: {loaded - start}' )
 
     def load_file(self, file):
         self.file=file
@@ -230,8 +227,6 @@ class Activity:
                                     el = el[0]
                                     if 'hr' in el.tag:
                                         hr = int(el.text)
-                                    else:
-                                        print(f'{el.tag = }')
                             self.heart_rate.append(hr)
 
                 self.speed = np.array(self.speed, dtype=np.float16)
@@ -268,9 +263,7 @@ class Activity:
         except:
             pass
         self.elevation = np.array(self.elevation, dtype=np.float16)
-        print(f'{max(self.speed) = }')
         self.speed = np.array(self.speed, dtype=np.float16)
-        print(f'{max(self.speed) = }')
         self.lat = np.array(self.lat, dtype=np.float32)
         self.lon = np.array(self.lon, dtype=np.float32)
         self.temperature = np.array(self.temperature, dtype=np.float16)
@@ -298,7 +291,6 @@ class Activity:
         self.get_power_curve()
 
     def calculate_dt(self):
-        start = timeit.time()
         self.dt = [0]
         self.ds = [0]
         for idx, time in enumerate(self.times[1:]):
@@ -312,11 +304,8 @@ class Activity:
             self.dt.append(dt)
         self.dt = np.array(self.dt, dtype=np.float32)
         self.ds = np.array(self.ds, dtype=np.float32)
-        end = timeit.time()
-        print(f'DT: {end-start}')
 
     def get_HR_zones(self):
-        start = timeit.time()
         self.heart_rate_zone = []
         max_hr = 185
         zones = [0,0,0,0,0]
@@ -341,12 +330,9 @@ class Activity:
                     zones[4] = zones[4]+time
             self.heart_rate_zone.append(zone)
         self.hr_zones = zones
-        end = timeit.time()
-        print(f'HR Zones: {end-start}')
         return zones
 
     def get_power_zones(self):
-        start = timeit.time()
         self.power_zone = []
         ftp = 250
         zones = [0,0,0,0,0,0,0]
@@ -376,27 +362,18 @@ class Activity:
                     zones[6] = zones[6]+time
                 self.power_zone.append(zone)
         self.power_zones = zones
-        end = timeit.time()
-        print(f'Power Zones: {end-start}')
         return zones
 
 
     def get_power_curve(self):
-        start = timeit.time()
         durations = [1, 5, 10, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 2400, 3600, 4800,7200,3600*3,3600*4,3600*10]
         results = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         start_time = min(self.times)
         end_time = max(self.times)
         activity_duration = end_time - start_time
         if not np.isnan(np.nanmax(self.power)):
-            power_data = pd.Series(self.power)
-            mean_dt = np.mean(self.dt)
             for idx, duration in enumerate(durations):
                 if duration < activity_duration:
-                    #print(f'{duration = }')
-                    #spacing = max(int(duration/mean_dt),1)
-                    #rolling = power_data.rolling(spacing).mean().dropna()
-                    #max_power = max(rolling.dropna(),default=np.nan)
                     time = start_time
                     max_power = 0
                     while time < (end_time - duration):
@@ -407,12 +384,9 @@ class Activity:
             self.power_curve = [results, durations]
         else:
             print('\t\tNo Power measurements')
-        end = timeit.time()
-        print(f'Power Curve: {end-start}')
         return [results, durations]
 
     def fix_duration(self, duration):
-        start = timeit.time()
         fix = np.zeros(self.time_since_start.size)
         for idx, time in enumerate(self.time_since_start[1:]):
             gap = time - self.time_since_start[idx]
@@ -422,12 +396,8 @@ class Activity:
                 addition = gap
             fix[idx+1] = fix[idx] - addition
         self.time_since_start = np.add(self.time_since_start,fix)
-        end = timeit.time()
-        print(f'Duration Zones: {end-start}')
 
     def crop_activity(self, date, duration):
-
-        start = timeit.time()
         try:
             end = date + pd.Timedelta(seconds=(duration + 1))
             if min(self.datetime) < date or max(self.datetime) > end:
@@ -463,9 +433,6 @@ class Activity:
                     self.left_torque_effectiveness = self.left_torque_effectiveness[mask]
         except:
             print(f'Did not crop {self.name}')
-
-        end = timeit.time()
-        print(f'Cropping Zones: {end - start}')
 
     def reduce(self):
         self.times = []
@@ -532,7 +499,6 @@ def plot_data(activities):
     tot_distance = 0
     for idx, activity in enumerate(activities):
         if not activity.virtual:
-            print(f'{idx = }')
             activity.lat = np.append(activity.lat, [None, None, None, None, None])
             activity.lon = np.append(activity.lon, [None, None, None, None, None])
             activity.elevation = np.append(activity.elevation, [None, None, None, None, None])
@@ -814,11 +780,8 @@ def get_subdataset(df, start_date, end_date, display, activity_name, append, vir
         dff = dff[dff['Virtual'] == False]
     elif virtual == 'Virtual':
         dff = dff[dff['Virtual'] == True]
-    else:
-        print(f'Dataset Size {dff.size}')
 
     dff = dff[dff['Type'].isin(activity_type)]
-    #dff = dff[dff['Type'].isin(type)]
     return dff
 
 def plot_temperature(activities):
@@ -1050,6 +1013,7 @@ def load_Data_Strava_export():
         pickle.dump(activities, fp)
     return activities
 
+
 def load_Data_turistveger():
     activities = []
     pathlist = pathlib.Path('./turistvegeer').glob('*.gpx')
@@ -1104,25 +1068,6 @@ def load_Data_turistveger():
 
     return activities
 
-def load_mp(row, procnum, return_dict):
-    file = row['Filename']
-    file = './data/' + file
-    activity = Activity()
-    if file.__contains__('.gpx'):
-        activity.load_file(file.replace('.gz', ''))
-    elif file.__contains__('.tcx'):
-        activity.read_tcx(file.replace('.gz', ''))
-    else:
-        activity.read_fit(file.replace('.gz', ''))
-    activity.sport = row['Activity Type']
-    activity.name = row['Activity Name']
-    if row['Commute']:
-        activity.sport = 'Commute ' + row['Activity Type']
-        activity.commute = True
-    if row['Activity Type'] == 'Virtual Ride':
-        activity.virtual = True
-    print(f'{procnum = }: {file = }, {activity.name =} done')
-    return_dict[procnum] = activity
 
 def calculate_eddington(df):
     df = df[df['Type'] != 'Alpine Ski'] ## Exclude Alpine Ski
@@ -1249,35 +1194,30 @@ def get_hgt_file_name(lat, lon):
 
 SAMPLES = 3601 # Change this to 1201 for SRTM3
 def read_elevation_from_file(hgt_file, lon, lat):
-    with open(hgt_file, 'rb') as hgt_data:
         # Each data is 16bit signed integer(i2) - big endian(>)
-        if buffered_nasa_sets.__contains__(hgt_file):
-            elevations = buffered_nasa_sets[hgt_file]
-        else:
-            elevations = np.fromfile(hgt_data, np.dtype('>i2'), SAMPLES*SAMPLES).reshape((SAMPLES, SAMPLES))
-            print(f'Loading {hgt_file}')
-            buffered_nasa_sets[hgt_file] = elevations
-        if lat > 0:
-            lat_row = int(round((lat - int(lat)) * (SAMPLES - 1), 0))
-        else:
-            lat_row = int(round((lat - int(lat-1)) * (SAMPLES - 1), 0))
-        if lon > 0:
-            lon_row = int(round((lon - int(lon)) * (SAMPLES - 1), 0))
-        else:
-            lon_row = int(round((lon - int(lon-1)) * (SAMPLES - 1), 0))
-        #print(f'{lat_row=}, {lon_row=}')
+    elevations = buffered_nasa_sets[hgt_file]
+    if lat > 0:
+        lat_row = int(round((lat - int(lat)) * (SAMPLES - 1), 0))
+    else:
+        lat_row = int(round((lat - int(lat-1)) * (SAMPLES - 1), 0))
+    if lon > 0:
+        lon_row = int(round((lon - int(lon)) * (SAMPLES - 1), 0))
+    else:
+        lon_row = int(round((lon - int(lon-1)) * (SAMPLES - 1), 0))
     return elevations[SAMPLES - 1 - lat_row, lon_row].astype(int)
 
 
 def fix_elevation_hgt_point(lat, long, elevation):
     if lat is not None and long is not None:
-        filename = './DEM/hgt_Files/' + get_hgt_file_name(lat, long) + '.hgt'
-        if os.path.isfile(filename):
-            elevation = read_elevation_from_file(filename, long, lat)
-            #print('Found Point in NASA Files ')
-        else:
-            pass
-            #print('Did not find Point in Nasa Coordinates')
+        hgt_file = './DEM/hgt_Files/' + get_hgt_file_name(lat, long) + '.hgt'
+        if buffered_nasa_sets.__contains__(hgt_file):
+            return read_elevation_from_file(hgt_file, long, lat)
+        elif os.path.isfile(hgt_file):
+            with open(hgt_file, 'rb') as hgt_data:
+                elevations = np.fromfile(hgt_data, np.dtype('>i2'), SAMPLES * SAMPLES).reshape((SAMPLES, SAMPLES))
+            print(f'Loading {hgt_file} into buffer')
+            buffered_nasa_sets[hgt_file] = elevations
+            return read_elevation_from_file(hgt_file, long, lat)
     return elevation
 
 
