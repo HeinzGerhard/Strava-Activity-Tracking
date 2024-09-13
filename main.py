@@ -1,6 +1,5 @@
-# This is a sample Python script.
-import math
 
+import math
 import matplotlib.pyplot as plt
 import gpxpy
 import gpxpy.gpx
@@ -10,36 +9,29 @@ from fit_tool.fit_file import FitFile
 from fit_tool.profile.messages.record_message import RecordMessage
 from fit_tool.profile.messages.sport_message import SportMessage
 from fit_tool.profile.messages.activity_message import ActivityMessage
-from fit_tool.profile.messages.bike_profile_message import BikeProfileMessage
 from datetime import datetime
 from datetime import timedelta
 import geopy.distance
-import os, sys
+import os
 import operator
 import plotly.express as px
 import pandas as pd
 import pickle
-import math
 import pathlib
-import multiprocessing
 import time as timeit
 import rasterio
 import utm
 import gzip
 import shutil
 import Tiles
-
 import Calculate_Polygons
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+
 
 buffered_nasa_sets = {} # Buffer for the 30m NASA DEM Models https://dwtkns.com/srtm30m/
 debug = False
 # Load the DEM Model for Norway
-fp = r'./DEM/dtm10/data/dtm10_7002_2_10m_z33.tif' # 10 m  Model around Trondheim
-dataset = rasterio.open(fp)
-datasets = [dataset]
-files = glob.glob("./DEM/DTM50_UTM33_20240510/*.tif")# 50 M Model for the rest of Norway
+datasets = []
+files = glob.glob("./DEM/*.tif")# 50 M Model for the rest of Norway
 for file in files:
     datasets.append(rasterio.open(file))
 
@@ -1176,47 +1168,9 @@ def calculate_eddington(df):
             eddington_number = indx
             break
 
-
     with open("./eddington.res", "wb") as fp:  # Pickling
         pickle.dump([bins,results, color,results_miles, color_mile], fp)
     return eddington_number
-
-
-def load_Data_Strava_export_mp():
-
-    print(f'Load Strava Export Mulit Thread')
-    #multiprocessing.set_start_method('fork')
-    manager = multiprocessing.Manager()
-    return_dict = manager.dict()
-    pool =  multiprocessing.Pool()
-    jobs = []
-    overview = pd.read_csv('./data/activities.csv')
-    i = 0
-    for idx, row in overview.iterrows():
-        file = row['Filename']
-        if isinstance(file,str):
-            file = './data/' + file
-            if os.path.isfile(file.replace('.gz', '')):
-                #print(f'{file = }')
-                pool.apply_async(load_mp, args=(row, i, return_dict))
-                i = i + 1
-                if False:
-                    p = multiprocessing.Process(target=load_mp, args=(row, i, return_dict))
-                    i = i+1
-                    jobs.append(p)
-                    p.start()
-            else:
-                print(f' File {file} does not exist')
-    pool.close()
-    pool.join()
-    #for proc in jobs:
-    #    proc.join()
-    activities = return_dict.values()
-    activities.sort(key=operator.attrgetter('timestamp'))
-    with open("./activities.res", "wb") as fp:  # Pickling
-        pickle.dump(activities, fp)
-
-    return activities
 
 
 def moving_mean(times, values, resolution):
@@ -1342,21 +1296,9 @@ def fix_elevation_hgt(activities):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    #read_dtm()
-    #fix_elevation([ 'Gravel del Fuego Day 2'])
-    #fix_elevation([ 'TURno1 to checkpoint 1'])
-    #fix_elevation([ 'Juvashytte x4'])
-    #load_Data_turistveger()
-    #file = pathlib.Path('./Trondheim_to_Steinkjer.fit')
-    #file = pathlib.Path('C:/Users/nicol/Downloads/Saguenay_to_Riviere_du_Loup.fit')
-    #activity = Activity()
-    #activity.read_fit(file)
-    #activities = load_Data_Strava_export()
-    #Calculate_Polygons.analyse_activities()
+    activities = load_Data_Strava_export()
+    Calculate_Polygons.analyse_activities()
     with open('./data_frame.res', "rb") as fp:
         df = pickle.load(fp)
     calculate_eddington(df)
     Tiles.analyse_dataframe(df)
-    #plot_data(activities)
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
