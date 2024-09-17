@@ -202,7 +202,7 @@ app.layout = html.Div([
                 multi=True
             )], style={'width': '23%', 'display': 'inline-block'}),
         html.Div([
-            dcc.Slider(2, 14, 1, value=2,
+            dcc.Slider(2, 17, 1, value=2,
                        id='crossfilter-smoothing',
                        )], style={'width': '32%', 'display': 'inline-block'}),
     ], style={'width': '49%', 'float': 'right', 'display': 'inline-block'}),
@@ -457,7 +457,7 @@ def update_Map_plotting_type(plot, activity_name, variable,
                 lat=df_turistveger['Lat'],
                 mode='markers',
                 name='Trace',
-                customdata=dff[['Name']],
+                customdata=df_turistveger[['Name']],
                 hovertemplate=
                 "<b>%{customdata[0]}</b><br>" +
                 "<extra></extra>",

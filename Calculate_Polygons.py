@@ -3,11 +3,12 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 
-from main import *
+import main
 from scipy import spatial
 from shapely.geometry import LineString, Polygon
 from shapely.ops import polygonize, unary_union
 import geopandas as gpd
+import pickle
 
 
 
@@ -30,19 +31,7 @@ def make_line_string(activity, threshold=5):
     nodes = nodes[~np.isnan(nodes).any(axis=1)]
     mask = np.all(np.equal(nodes, None), axis=1)
     nodes = nodes[~mask]
-    #for idx,node_1 in enumerate(nodes):
-    #    for idx_2, node_2 in enumerate(nodes[idx+1:]):
-    #        if get_distance(node_1, node_2) < threshold / (1852 * 60):
-    #            nodes[idx+idx_2+1] = node_1
-                #print(f'replaced {idx = } and {idx_2 =}')
 
-
-    #distance = get_distance(nodes[0], nodes[-1])
-    #print(f'{distance = } {distance*(1852*60) = }')
-    #closed = distance < 170/(1852*60)
-    #if distance < 170/(1852*60):
-    #    nodes = np.vstack([nodes[:-2], nodes[0],nodes[-1]])
-    #    print(f'Closed Loop')
     if not activity.virtual and nodes.__len__() > 0:
         edited_start = False
         edited_end = False
@@ -55,7 +44,6 @@ def make_line_string(activity, threshold=5):
             distance = get_distance(nodes[0], start_point)
             if distance < tolerance:
                 nodes = np.vstack([start_point, nodes])
-                print(f'\tFixed Startpoint')
                 edited_start = True
                 break
         if not edited_start:
@@ -64,7 +52,6 @@ def make_line_string(activity, threshold=5):
             distance = get_distance(nodes[-1], start_point)
             if distance < tolerance:
                 nodes = np.vstack([nodes, start_point])
-                print(f'\tFixed Endpoint')
                 edited_end = True
                 break
         if not edited_end:
@@ -98,39 +85,23 @@ def analyse_polygons(lines, name):
 
 
 def analyse_lines(lines):
-    #gs_l = gpd.GeoSeries(lines)
-    #ax = gs_l.plot()
-    #plt.title(f'All Lines')
-    #plt.show()
     polygons = polygonize(unary_union(lines))
     return_polygons = []
     for polygon in polygons:
         if polygon.area > 0.5e-6:
             return_polygons.append(Polygon(polygon.exterior.coords))
-            #print(f'{polygon.area = }')
     return return_polygons
 
 
 def analyse_activities():
 
-    start = timeit.time()
-    activities = load_data_file()
-    #activities = activities[580:595]
-    loaded = timeit.time()
-    print(f'reading: {loaded - start}')
+    activities = main.load_data_file()
     for activity in activities:
         print(f'{activity.name}')
         activity.intersections = set()
         #try:
         activity.line = make_line_string(activity)
         activity.polygons = analyse_polygons([activity.line], activity.name)
-        #except Exception as e:
-        #    print(f'Error: {activity.name}')
-        #    print(e)
-
-    linestring = timeit.time()
-
-    print(f'reading: {loaded - start}, Line_string: {linestring - loaded},')
     polygons = []
     activity_polygons = dict()
     for activity in activities:
@@ -139,41 +110,27 @@ def analyse_activities():
             for act_polygon in activity.polygons:
                 polygons.append(act_polygon)
 
-            #new = True
-            #for polygon in polygons:
-            #    if not act_polygon.disjoint(polygon):
-            #        new = False
-            #if new:
-            #    polygons.append(act_polygon)
-
-    collect_polygons = timeit.time()
-
-    print(f'reading: {loaded - start}, Line_string: {linestring - loaded},'
-          f' collect polygons: {collect_polygons - linestring}')
-
     ## Calculate Intersections
 
     for idx, activity in enumerate(activities):
+        #activity = activities[idx]
         if not activity.virtual and not activity.commute:
             #print(f'Intersections {activity.name}')
             if activity.line != []:
                 for idx_2,activity_2 in enumerate(activities[idx+1:]):
-                    if activity.line != [] and not activity_2.virtual \
+                    #activity_2 = activities[idx_2+idx+1]
+                    if activity_2.line != [] and not activity_2.virtual \
                             and not activity_2.commute:
                         try:
-                            if activity.intersections.__contains__(idx_2+idx+1):
-                                activity_2.intersections.update(activity.intersections)
-                            elif activity.line.intersects(activity_2.line):
-                                activity.intersections.add(idx_2+idx+1)
-                                activity_2.intersections.update(activity.intersections)
+                            if  not activity.intersections.__contains__(idx_2+idx+1):
+                                if activity.line.intersects(activity_2.line):
+                                    activity.intersections.add(idx_2+idx+1)
                         except:
                             print(f'{activity.name}, {activity_2.name}')
-            print(f'Intersections {activity.name}\t{activity.intersections}')
+                for idx in activity.intersections:
+                    activities[idx].intersections.update(activity.intersections)
+            print(f'Intersections {activity.name}:\t{activity.intersections.__len__()}')
 
-
-    intersections_time = timeit.time()
-    print(f'reading: {loaded - start}, Line_string: {linestring - loaded},'
-          f' collect polygons: {collect_polygons - linestring}, intersections: {intersections_time - collect_polygons}')
     sets = []
 
     for idx, activity in enumerate(activities):
@@ -192,36 +149,10 @@ def analyse_activities():
             if new:
                 sets.append(intersections)
     final_set = sets
-    if False:
-        change = True
-        while change:
-            change = False
-            for idx, set_1 in enumerate(sets):
-                for idx_2, set_2 in enumerate(sets[idx+1:]):
-                    if not set(set_1).isdisjoint(set_2) and not set(set_1).issuperset(set_2):
-                        set_1 = set_1.union(set_2)
-                        #set_1 = set(set_1)
-                        change = True
-        final_set = []
 
-        for set_1 in sets:
-            use = True
-            for set_2 in sets:
-                if set(set_1) < set(set_2):
-                    use = False
-                    break
-            if use:
-                final_set.append(set(set_1))
-
-
-    sets_time = timeit.time()
-
-    print(f'reading: {loaded - start}, Line_string: {linestring - loaded},'
-          f' collect polygons: {collect_polygons - linestring}, Intersectiosn: {intersections_time - collect_polygons},'
-          f'Sets: {sets_time - intersections_time}')
 
     for intersect in final_set:
-        print(f'Working on Set\n{intersect}\n{intersect.__len__() = }')
+        print(f'Working on Set lenght {intersect.__len__()}')
         lines = []
         for idx in intersect:
             lines.append(activities[idx].line)
@@ -229,12 +160,7 @@ def analyse_activities():
         for polygon in return_polygons:
             polygons.append(polygon)
 
-    sets_polygon_time = timeit.time()
-
-    print(f'reading: {loaded - start}, Line_string: {linestring - loaded},'
-          f' collect polygons: {collect_polygons - linestring}, Intersectiosn: {intersections_time - collect_polygons},'
-          f'Sets: {sets_time - collect_polygons}, Full_Polygons: {sets_polygon_time - sets_time},')
-
+    print(f'Working on finalisation')
 
     final_polygons = unary_union(polygons)
     temp_polygons_list = list(final_polygons.geoms)
@@ -243,19 +169,7 @@ def analyse_activities():
         if polygon.area > 2.5e-6:
             return_polygons.append(Polygon(polygon.exterior.coords))
             polygons_list.append(Polygon(polygon.exterior.coords))
-    if False:
-        for polygon in polygons_list:
-            gs_l = gpd.GeoSeries(polygon)
-            ax = gs_l.plot()
-            plt.title(f'One Final Polygon, {polygon.area = }')
-            plt.show()
-            plt.close('All')
 
-
-    #gs_l = gpd.GeoSeries(polygons_list)
-    #ax = gs_l.plot()
-    #plt.title('All Polygons')
-    #plt.show()
     with open("./polygons.res", "wb") as fp:  # Pickling
         pickle.dump(polygons_list, fp)
     with open("./activity_polygons.res", "wb") as fp:  # Pickling
@@ -267,11 +181,6 @@ def analyse_activities():
                    .map(lambda p: p.area / 10**6)
     print(f'Total ridden area: {sum(areas)} km^2')
     print(f'Area of the earth: {sum(areas)/148326000*100} %')
-    final = timeit.time()
 
-    print(f'Total: {final - start}, reading: {loaded - start}, Line_string: {linestring - loaded},'
-          f' collect polygons: {collect_polygons - linestring}, Intersectiosn: {intersections_time - collect_polygons},'
-          f'Sets: {sets_time - collect_polygons}, Full_Polygons: {sets_polygon_time - sets_time},'
-          f' Output: {final - sets_polygon_time}')
 if __name__ == '__main__':
     analyse_activities()
