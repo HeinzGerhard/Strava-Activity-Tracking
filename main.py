@@ -10,6 +10,7 @@ from fit_tool.profile.messages.sport_message import SportMessage
 from fit_tool.profile.messages.activity_message import ActivityMessage
 from datetime import datetime
 from datetime import timedelta
+
 import geopy.distance
 import os
 import operator
@@ -1070,9 +1071,10 @@ def load_Data_turistveger():
 
 
 def calculate_eddington(df):
-    df = df[df['Type'] != 'Alpine Ski'] ## Exclude Alpine Ski
-    df = df[df['DateTime'] > datetime(year=2021, month=8, day=1)] # Exclude Nordkapp komoot data
-    dfw = df[['DateTime','DS']]
+    df = df[df['Type'] != 'Alpine Ski'] ## Exclude Alpine Ski# Exclude Nordkapp komoot data
+    dfw = df[['Time','DS']]
+    dfw = dfw[dfw['DS'] > 0]
+    dfw = dfw[dfw['Time'] > datetime(year=2021, month=8, day=1).timestamp()]
     max_dist = int(np.max(df['Distance']))
     bins = np.linspace(1, max_dist, max_dist)
     results = np.zeros(max_dist)
@@ -1081,10 +1083,10 @@ def calculate_eddington(df):
     color = ['red'] * max_dist
     color_mile = ['orange'] * max_dist
     for date in sorted(all_dates):
-        #dfy = df[[new_date.date() == date for new_date in df['DateTime']]]
-        dfw = dfw[dfw['DateTime'] >= np.datetime64(date)]
-        dfy = dfw[dfw['DateTime'] < np.datetime64(date + timedelta(days=1))]
-        distance = np.sum(dfy.DS)
+        dfw = dfw[dfw['Time'] > datetime(date.year,date.month,date.day).timestamp()]
+        end = date + timedelta(days=1)
+        dfy = dfw[dfw['Time'] < datetime(end.year,end.month,end.day).timestamp()]
+        distance = dfy['DS'].sum()
         print(f'{date = }, distance {int(distance)}')
         for indx, target_distance in enumerate(bins):
             if distance >= target_distance:
@@ -1129,19 +1131,6 @@ def moving_mean(times, values, resolution):
     mean_times = np.array(mean_times)
     return mean_times, mean_values
 
-def read_dtm():
-    filename = "./DEM/dtm10/data/dtm10_7002_2_10m_z33.tif"
-    import rasterio
-    from rasterio.plot import show
-    fp = r'./DEM/dtm10/data/dtm10_7002_2_10m_z33.tif'
-    dataset = rasterio.open(fp)
-    dataset.bounds
-    dataset.crs
-    show(dataset)
-    for val in dataset.sample([(290398.83243544295, 7019904.137248003)]):
-        print(val)
-    import utm
-    utm.from_latlon(70,10,33)
 
 def fix_elevation(activities):
     with open('./data_frame.res', "rb") as fp:

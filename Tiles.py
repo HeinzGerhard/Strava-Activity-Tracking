@@ -73,36 +73,75 @@ def generate_reduced_lines(zoom=14):
     return long, lat
 
 def check_tiles(zoom, df):
-    df = df[df['Type'] != 'Virtual Ride']
     df = df[['Lat', 'Long']]
-    df.dropna()
     tiles = []
     n = 2 ** zoom
     lat_index = 0
     lat = get_lattitude(lat_index,n)
     lat_next = get_lattitude(lat_index+1,n)
     longitudes = np.linspace(-180, 180, n + 1)
-    max_lat = max(df['Lat'])
+    max_lat = df['Lat'].max()
     while lat > -85:
         if max_lat > lat_next:
             df = df[df['Lat'] < lat]
-            dfn = df[df['Lat'] > lat_next]
-            if dfn.shape[0] > 0:
-                min_long = min(dfn['Long'])
+            lat_mask = df['Lat'] > lat_next
+            if lat_mask.values.__contains__(True):
+                print(f'Found Tile at Lattidude {lat}')
+                dfn = df[['Long']]
+                dfn = dfn[lat_mask]
+                min_long = dfn['Long'].min()
                 for idx, longitude in enumerate(longitudes[:-1]):
                     if longitudes[idx+1] > min_long:
-                        dfn = dfn[dfn['Long'] > longitude]
-                        if dfn.shape[0] == 0:
+                        mask = dfn['Long'] > longitude
+                        if not mask.values.__contains__(True):
                             break
-                        min_long = min(dfn['Long'])
-                        dfm = dfn[dfn['Long'] < longitudes[idx+1]]
-                        if dfm.shape[0] > 0:
+                        dfn = dfn[mask]
+                        min_long = dfn['Long'].min()
+                        if (dfn['Long'] < longitudes[idx+1]).values.__contains__(True):
                             uid = "{0}_{1}".format(idx, lat_index)
                             tiles.append(uid)
-                            print(f'Found Tile {uid}, Lat {lat}, Long {longitude}')
+                            #print(f'Found Tile {uid}, Lat {lat}, Long {longitude}')
             if df.shape[0] == 0:
                 break
-            max_lat = max(df['Lat'])
+            max_lat = df['Lat'].max()
+        lat_index = lat_index+1
+        lat = get_lattitude(lat_index, n)
+        lat_next = get_lattitude(lat_index + 1, n)
+    return tiles
+
+
+def check_tiles_v2(zoom, df):
+    df = df[df['Type'] != 'Virtual Ride']
+    df = df[['Lat', 'Long']]
+    tiles = []
+    n = 2 ** zoom
+    lat_index = 0
+    lat = get_lattitude(lat_index,n)
+    lat_next = get_lattitude(lat_index+1,n)
+    longitudes = np.linspace(-180, 180, n + 1)
+    max_lat = df['Lat'].max()
+    while lat > -85:
+        if max_lat > lat_next:
+            df = df[df['Lat'] < lat]
+            lat_mask = df['Lat'] > lat_next
+            if lat_mask.values.__contains__(True):
+                print(f'Found Tile at Lattidude {lat}')
+                dfn = dfn[lat_mask]
+                min_long = dfn['Long'].min()
+                for idx, longitude in enumerate(longitudes[:-1]):
+                    if longitudes[idx+1] > min_long:
+                        mask = dfn['Long'] > longitude
+                        if not mask.values.__contains__(True):
+                            break
+                        dfn = dfn[mask]
+                        min_long = dfn['Long'].min()
+                        if (dfn['Long'] < longitudes[idx+1]).values.__contains__(True):
+                            uid = "{0}_{1}".format(idx, lat_index)
+                            tiles.append(uid)
+                            #print(f'Found Tile {uid}, Lat {lat}, Long {longitude}')
+            if df.shape[0] == 0:
+                break
+            max_lat = df['Lat'].max()
         lat_index = lat_index+1
         lat = get_lattitude(lat_index, n)
         lat_next = get_lattitude(lat_index + 1, n)
@@ -110,7 +149,9 @@ def check_tiles(zoom, df):
 
 def analyse_dataframe(df):
     all_Tiles = dict()
-    for level in [2,3,4,5,6,7,8,9,10,11,12,13,14]:
+    df = df[df['Type'] != 'Virtual Ride']
+    df = df[['Lat', 'Long']]
+    for level in [2,3,4,5,6,7,8,9,10,11,12,13,14, 15, 16,17]:
         print(f'{level = }')
         tiles = check_tiles(level, df)
         all_Tiles.update({level:tiles})
@@ -124,6 +165,10 @@ if __name__ == '__main__':
     plt.show()
     with open('./data_frame.res', "rb") as fp:
         df = pickle.load(fp)
+    import timeit
+
+    timeit.timeit("tiles = check_tiles_v2(12, df)", number=3, globals=globals())
+    timeit.timeit("tiles = check_tiles(12, df)", number=3, globals=globals())
     tiles = check_tiles(12, df)
     x=[]
     y=[]
