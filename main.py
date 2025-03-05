@@ -5,7 +5,12 @@ import gpxpy.gpx
 import glob
 import numpy as np
 from fit_tool.fit_file import FitFile
+from fit_tool.generic_message import GenericMessage
+from fit_tool.profile.messages.climb_pro_message import ClimbProMessage
+from fit_tool.profile.messages.device_info_message import DeviceInfoMessage
+from fit_tool.profile.messages.lap_message import LapMessage
 from fit_tool.profile.messages.record_message import RecordMessage
+from fit_tool.profile.messages.session_message import SessionMessage
 from fit_tool.profile.messages.sport_message import SportMessage
 from fit_tool.profile.messages.activity_message import ActivityMessage
 from datetime import datetime
@@ -23,9 +28,15 @@ import rasterio
 import utm
 import gzip
 import shutil
+import fitdecode
+
+from fit_tool.profile.messages.user_profile_message import UserProfileMessage
+
 import Tiles
 import Calculate_Polygons
 
+
+broken_power = ['Frøya']
 
 buffered_nasa_sets = {} # Buffer for the 30m NASA DEM Models https://dwtkns.com/srtm30m/
 debug = False
@@ -38,6 +49,7 @@ for file in files:
 class Activity:
     def __init__(self):
         self.line = []
+        self.id = 0
         self.polygons = []
         self.intersections = []
         self.times = []
@@ -74,6 +86,8 @@ class Activity:
         self.file = ''
         self.gear = ''
         self.commute = False
+        self.laps = []
+        self.generic_messages = []
 
     def read_tcx(self,file):
 
@@ -135,12 +149,178 @@ class Activity:
         self.file = file
         file = pathlib.Path(file)
         print(f'\t\tLoading Fit activity file {file}')
-        app_fit = FitFile.from_file(file)
+        fitfile = fitdecode.FitReader(file)
+        loaded = timeit.time()
+        old_dist = 0
+        all_frames = {}
+        for frame in fitfile:
+            if isinstance(frame, fitdecode.records.FitDataMessage):
+                fields = []
+                for field in frame.fields:
+                    if isinstance(frame, fitdecode.records.FitDataMessage):
+                        fields.append(field.name)
+                        all_frames.update({frame.name: fields})
 
+
+                if frame.name == "session":
+                    sport_name = frame.get_value('sport')
+                    sub_sport_name = frame.get_value('sub_sport')
+                    if sport_name == 'INDOOR':
+                        self.virtual = True
+                        self.sport = 'virtual cycling'
+                    elif sport_name == 'ROAD' or sport_name == 'TOUR':
+                        self.virtual = False
+                        self.sport = 'cycling'
+                    else:
+                        if sub_sport_name == 'virtual_activity':
+                            self.virtual = True
+                        else:
+                            self.virtual = False
+                        self.sport = sport_name
+                    self.sport = sport_name
+
+                    time = frame.get_value('timestamp').replace(tzinfo=None)
+                    self.year = time.year
+                    self.timestamp = time.timestamp()
+                    self.total_timer_time = frame.get_value('total_timer_time')
+                if frame.name == "record":
+                    if frame.has_field('enhanced_speed'):
+                        #print('Enhanced Speed')
+                        speed = frame.get_value('enhanced_speed')
+                        if speed is None:
+                            speed = frame.get_value('speed')
+                    else:
+                        if frame.has_field('speed'):
+                            speed = frame.get_value('speed')
+                        else:
+                            speed = None
+                    if speed is None:
+                        if frame.get_value('distance') is not None:
+                            old_dist = (frame.get_value('distance') or 0) if frame.get_value('distance') < 10000000 else None
+                    else:
+                        if frame.has_field('position_lat') and frame.has_field('position_long'):
+                            lat = frame.get_value('position_lat')/11930465
+                            long = frame.get_value('position_long')/11930465
+                            altitude = None
+                            if frame.has_field('altitude') or frame.has_field('enhanced_altitude'):
+                                if frame.has_field('altitude'):
+                                    altitude = frame.get_value('altitude')
+                                if frame.has_field('enhanced_altitude'):
+                                    altitude_temp = frame.get_value('enhanced_altitude')
+                                    if altitude_temp is not None:
+                                        altitude = altitude_temp
+                                self.elevation.append(fix_elevation_point(lat, long, altitude))
+                            else:
+                                self.elevation.append(None)
+                            self.lat.append(lat)
+                            self.lon.append(long)
+                        else:
+                            self.elevation.append(None)
+                            self.lat.append(None)
+                            self.lon.append(None)
+
+                        datetime_value = frame.get_value('timestamp').replace(tzinfo=None)
+                        self.datetime.append(datetime_value)
+                        self.times.append(datetime_value.timestamp())
+                        self.temperature.append(frame.get_value('temperature'))
+                        self.distance.append((frame.get_value('distance') or old_dist)/1000)
+                        self.speed.append(speed if (speed or 0) < 200 else 0)
+                        if frame.has_field('heart_rate'):
+                            self.heart_rate.append(frame.get_value('heart_rate'))
+                        else:
+                            self.heart_rate.append(None)
+                        if frame.has_field('power'):
+                            self.power.append(frame.get_value('power') if frame.get_value('power') == None else frame.get_value('power') if frame.get_value('power') < 2500 else 0)
+                        else:
+                            self.power.append(None)
+                        if frame.has_field('cadence'):
+                            self.cadence.append(frame.get_value('cadence'))
+                        else:
+                            self.cadence.append(None)
+                        if frame.has_field('accumulated_power'):
+                            self.accumulated_power.append(frame.get_value('accumulated_power'))
+                        else:
+                            self.accumulated_power.append(None)
+                        if frame.has_field('left_pedal_smoothness'):
+                            self.left_pedal_smoothness.append(frame.get_value('left_pedal_smoothness'))
+                        else:
+                            self.left_pedal_smoothness.append(None)
+                        if frame.has_field('left_torque_effectiveness'):
+                            self.left_torque_effectiveness.append(frame.get_value('left_torque_effectiveness'))
+                        else:
+                            self.left_torque_effectiveness.append(None)
+                    #print('Record Message')
+                elif isinstance(frame, SessionMessage):
+                    self.session_data = frame
+                elif isinstance(frame, LapMessage):
+                    self.laps.append(frame)
+                elif isinstance(frame, UserProfileMessage):
+                    self.user_profile = frame
+                elif isinstance(frame, ClimbProMessage):
+                    self.Climb_Pro = frame
+                elif isinstance(frame, DeviceInfoMessage):
+                    self.device_info = frame
+                    if debug:
+                        print(str)
+        self.normalize_activity(file)
+        end = timeit.time()
+        print(f'Duration File load: {end - start}, parsing: {loaded - start}' )
+        if debug:
+            try:
+                generic_104 = np.array(self.generic_104)
+                generic_325 = np.array(self.generic_325)
+
+                plt.plot(generic_104[:, 0], generic_104[:, 2])
+                plt.title('104 2')
+                plt.show()
+                plt.plot(generic_104[:, 0], generic_104[:, 3])
+                plt.title('104 3')
+                plt.show()
+                plt.plot(generic_104[:, 0], generic_104[:, 4])
+                plt.title('104 4')
+                plt.show()
+                plt.plot(generic_104[:, 0], generic_104[:, 5])
+                plt.title('104 5')
+                plt.show()
+
+                plt.plot(generic_325[:, 0], generic_325[:, 2])
+                plt.title('325 2')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 3])
+                plt.title('325 3')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 4])
+                plt.title('325 4')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 5])
+                plt.title('325 5')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 6])
+                plt.title('325 6')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 7])
+                plt.title('325 7')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 8])
+                plt.title('325 8')
+                plt.show()
+            except:
+                pass
+
+
+    def read_fit_old(self, file):
+        start = timeit.time()
+        self.file = file
+        file = pathlib.Path(file)
+        print(f'\t\tLoading Fit activity file {file}')
+        app_fit = FitFile.from_file(file)
+        self.generic_104 = []
+        self.generic_325 = []
         loaded = timeit.time()
         old_dist = 0
         for record in app_fit.records:
             message = record.message
+            #print(message.__class__.__name__)
             if isinstance(message, SportMessage):
                 if message.sport_name == 'INDOOR':
                     self.virtual = True
@@ -157,8 +337,16 @@ class Activity:
                 time = datetime.fromtimestamp(int(message.timestamp) / 1000)
                 self.year = time.year
                 self.timestamp = message.timestamp / 1000
+                self.total_timer_time = message.total_timer_time
             if isinstance(message, RecordMessage):
-                if message.speed is None:
+                if hasattr(message, 'enhanced_speed'):
+                    #print('Enhanced Speed')
+                    speed = message.enhanced_speed
+                    if speed is None:
+                        speed = message.speed
+                else:
+                    speed = message.speed
+                if speed is None:
                     if message.distance is not None:
                         old_dist = (message.distance or 0) if message.distance < 10000000 else None
                 else:
@@ -167,7 +355,7 @@ class Activity:
                     self.temperature.append(message.temperature)
                     self.distance.append((message.distance or old_dist)/1000)
                     self.elevation.append(fix_elevation_point(message.position_lat, message.position_long, message.altitude))
-                    self.speed.append(message.speed if (message.speed or 0) < 200 else 0)
+                    self.speed.append(speed if (speed or 0) < 200 else 0)
                     self.lat.append(message.position_lat)
                     self.lon.append(message.position_long)
                     self.heart_rate.append(message.heart_rate)
@@ -176,10 +364,78 @@ class Activity:
                     self.accumulated_power.append(message.accumulated_power)
                     self.left_pedal_smoothness.append(message.left_pedal_smoothness)
                     self.left_torque_effectiveness.append(message.left_torque_effectiveness)
-
+                #print('Record Message')
+            elif isinstance(message, SessionMessage):
+                self.session_data = message
+            elif isinstance(message, LapMessage):
+                self.laps.append(message)
+            elif isinstance(message, UserProfileMessage):
+                self.user_profile = message
+            elif isinstance(message, ClimbProMessage):
+                self.Climb_Pro = message
+            elif isinstance(message, DeviceInfoMessage):
+                self.device_info = message
+            elif isinstance(message, GenericMessage):
+                self.generic_messages.append(message)
+                str = f'{message.global_id = }: '
+                for field in message.fields:
+                    str = str + f'{field.encoded_values}; \t'
+                if message.global_id == 104:
+                    data = [int(message.fields[0].encoded_values[0])+631065600]
+                    for field in message.fields:
+                        data.append(field.encoded_values[0])
+                    self.generic_104.append(data)
+                if message.global_id == 325:
+                    data = [int(message.fields[0].encoded_values[0])+631065600]
+                    for field in message.fields:
+                        data.append(field.encoded_values[0])
+                    self.generic_325.append(data)
+                if debug:
+                    print(str)
         self.normalize_activity(file)
         end = timeit.time()
         print(f'Duration File load: {end - start}, parsing: {loaded - start}' )
+        if debug:
+            try:
+                generic_104 = np.array(self.generic_104)
+                generic_325 = np.array(self.generic_325)
+
+                plt.plot(generic_104[:, 0], generic_104[:, 2])
+                plt.title('104 2')
+                plt.show()
+                plt.plot(generic_104[:, 0], generic_104[:, 3])
+                plt.title('104 3')
+                plt.show()
+                plt.plot(generic_104[:, 0], generic_104[:, 4])
+                plt.title('104 4')
+                plt.show()
+                plt.plot(generic_104[:, 0], generic_104[:, 5])
+                plt.title('104 5')
+                plt.show()
+
+                plt.plot(generic_325[:, 0], generic_325[:, 2])
+                plt.title('325 2')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 3])
+                plt.title('325 3')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 4])
+                plt.title('325 4')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 5])
+                plt.title('325 5')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 6])
+                plt.title('325 6')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 7])
+                plt.title('325 7')
+                plt.show()
+                plt.plot(generic_325[:, 0], generic_325[:, 8])
+                plt.title('325 8')
+                plt.show()
+            except:
+                pass
 
     def load_file(self, file):
         self.file=file
@@ -988,6 +1244,7 @@ def load_Data_Strava_export():
                     activity.read_tcx(file.replace('.gz', ''))
                 else:
                     continue
+                activity.id = row['Activity ID']
                 activity.sport = row['Activity Type']
                 activity.name = row['Activity Name']
                 if row['Commute']:
@@ -1225,9 +1482,13 @@ def fix_elevation_hgt(activities):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+    #activity = Activity()
+    #path = "C:/Users/nicol\Downloads\Bymarka_23_February_2025.fit"
+    #activity.read_fit(path)
+
     activities = load_Data_Strava_export()
-    Calculate_Polygons.analyse_activities()
     with open('./data_frame.res', "rb") as fp:
         df = pickle.load(fp)
-    calculate_eddington(df)
     Tiles.analyse_dataframe(df)
+    Calculate_Polygons.analyse_activities()
+    calculate_eddington(df)

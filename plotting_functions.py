@@ -10,6 +10,8 @@ import main
 import plotly.express as px
 import pickle
 
+from main import broken_power
+
 
 def get_plotting_dataset(df,activity_name, variable,
                  display, virtual, activity_type, append,
@@ -174,14 +176,15 @@ def update_overview_plots(df, activity_name, display, plot,  axis_type, start_da
         labels = ['1 s','5 s','10 s','30 s','1 min','2 min','3 min','5 min','10 min','15 min','20 min','30 min','40 min','1 h', '90 min','2h','3h','4h','10h']
         activities = main.load_data_file("./activities_small.res")
         for activity in activities:
-            curve_max = np.maximum(curve_max, activity.power_curve[0])
             if activity_name is not None:
                 if activity_name.__contains__(activity.name):
                     curve = np.maximum(curve, activity.power_curve[0])
-            if activity.timestamp > datetime.now().timestamp() -30*24*3600:
-                curve_30D = np.maximum(curve_30D, activity.power_curve[0])
+            if not broken_power.__contains__(activity.name):
+                curve_max = np.maximum(curve_max, activity.power_curve[0])
                 if activity.timestamp > datetime.now().timestamp() -90*24*3600:
                     curve_90D = np.maximum(curve_90D, activity.power_curve[0])
+                    if activity.timestamp > datetime.now().timestamp() -30*24*3600:
+                        curve_30D = np.maximum(curve_30D, activity.power_curve[0])
         d = {'Times': np.hstack([labels,labels,labels,labels]),
              'Power': np.hstack([curve_max,curve_90D,curve_30D,curve]),
              'Activity' : np.hstack([

@@ -88,7 +88,7 @@ def analyse_lines(lines):
     polygons = polygonize(unary_union(lines))
     return_polygons = []
     for polygon in polygons:
-        if polygon.area > 0.5e-6:
+        #if polygon.area > 0.5e-8:
             return_polygons.append(Polygon(polygon.exterior.coords))
     return return_polygons
 

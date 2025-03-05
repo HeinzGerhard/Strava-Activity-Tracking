@@ -27,12 +27,19 @@ with open('./activity_names.res', "rb") as fp:
 with open('./data_frame_turistveger.res', "rb") as fp:
     df_turistveger = pickle.load(fp)
 
+imported_Tiles = []
+
 update = False
 
 names = np.flip(df.sort_values('DateTime')['Name'].unique())
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
+broken_power_path = './broken-power.txt'
+broken_power_activities = []
+with open(broken_power_path, 'r', encoding='utf-8') as f:
+    for line in f.readlines():
+        broken_power_activities.append(line.strip())
 server = Flask(__name__)
 app = Dash(server=server, external_stylesheets=external_stylesheets)
 
@@ -105,7 +112,7 @@ app.layout = html.Div([
                      'Power Curve', 'Speed', 'Elevation',
                      'Time', 'Weekday', 'Month', 'Week',
                      'Eddington Number', 'Tiles', 'Tile Area'],
-                    'Eddington Number',
+                    'Power Curve',
                     id='crossfilter-overview-plot'
                 )], style={'width': '49%', 'display': 'inline-block', 'float': 'right'}
                 )
@@ -196,7 +203,20 @@ app.layout = html.Div([
             )], style={'width': '20%', 'display': 'inline-block'}),
         html.Div([
             dcc.Dropdown(
-                options=["point", "line", "heatmap", 'turistveger', 'polygon', 'tiles', 'all tiles', 'activity tiles'],
+                options=[
+                     "point",
+                     "lines",
+                     'polygon',
+                     #'activity tiles',
+                     'cluster',
+                     'Max Square',
+                     'all tiles',
+                     'polygon tiles',
+                     'turistveger',
+                     "heatmap",
+                     "line",
+                     'all polygon tiles',
+                     ],
                 value=["point"],
                 id='crossfilter-map-plot',
                 multi=True
@@ -264,23 +284,30 @@ def update_value(activity_name, variable,
     Input('my-date-picker-range', 'start_date'),
     Input('my-date-picker-range', 'end_date'),
     State('crossfilter-smoothing', 'value'),
-    State('crossfilter-map-plot', 'value'), prevent_initial_call=True)
+    State('crossfilter-map-plot', 'value'),
+    State('crossfilter-color-map', 'value'), prevent_initial_call=True)
 def update_graph(activity_name, variable,
                  display, virtual, activity_type, append,
-                 shift, start_date, end_date, smoothing, plot):
+                 shift, start_date, end_date, smoothing, plot, color_map):
     global df
-    patched_figure = Patch()
     print('Update Graph')
     dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
                                                   display, virtual, activity_type, append,
                                                   shift, start_date, end_date)
+    if plot.__contains__('lines'):
+        fig = update_Map_plotting_type(plot, activity_name, variable,
+                             display, virtual, activity_type, append,
+                             shift, start_date, end_date, smoothing, color_map)
+        return fig
+
+    patched_figure = Patch()
     for indx, dataset in enumerate(plot):
         if dataset == 'point'or dataset == 'line' or dataset == 'heatmap':
             patched_figure['data'][indx]['lat'] = dff['Lat'].values
             patched_figure['data'][indx]['lon'] = dff['Long'].values
         if dataset == 'line'or dataset == 'point':
             patched_figure['data'][indx]['customdata'] = dff[['Name', variable[0], 'Distance', 'Duration']].values
-        elif dataset == 'point':
+        if dataset == 'point':
             patched_figure['data'][indx]['marker'].update({'color': list(dff[variable[0]].rolling(smoothing-1).mean())})
         elif dataset == 'activity tiles':
             print('Update Activity Tiles')
@@ -297,6 +324,15 @@ def update_graph(activity_name, variable,
 
             patched_figure['data'][indx]['lon'] = x
             patched_figure['data'][indx]['lat'] = y
+        elif dataset == 'polygon tiles':
+            zoom = smoothing
+            gdf = get_activity_gdf(dff, zoom)
+            patched_figure['data'][indx]['geojson'] = json.loads(gdf.to_json())
+            patched_figure['data'][indx]['locations'] = gdf.index
+            patched_figure['data'][indx]['z'] = get_log_value(gdf['area'])
+            patched_figure['data'][indx]['customdata'] = gdf['area']
+            patched_figure['data'][indx]['marker_opacity'] = opacity_scale(gdf['area'],0.1,0.8)
+
     return patched_figure
 
 
@@ -382,15 +418,15 @@ def update_append(plot, activity_name, variable,
     State('my-date-picker-range', 'start_date'),
     State('my-date-picker-range', 'end_date'),
     Input('crossfilter-smoothing', 'value'),
-    State('crossfilter-map-type', 'value'),
     State('crossfilter-color-map', 'value'),
 
     prevent_initial_call='initial_duplicate'
 )
 def update_Map_plotting_type(plot, activity_name, variable,
                              display, virtual, activity_type, append,
-                             shift, start_date, end_date, smoothing, map_type, color_map):
+                             shift, start_date, end_date, smoothing, color_map):
     global df
+    global imported_Tiles
     dff = plotting_functions.get_plotting_dataset(df, activity_name, variable,
                                                   display, virtual, activity_type, append,
                                                   shift, start_date, end_date)
@@ -426,6 +462,28 @@ def update_Map_plotting_type(plot, activity_name, variable,
                 #print(output)
                 data.append(output)
                 print('Added Point')
+        if value == 'lines':
+            print('lines')
+            dff.loc[dff["Distance"] < 0.1 * max(1, 5 / 5), "Lat"] = np.NAN
+            if variable.__len__()>0:
+                output_variable = variable[0]
+                #for name in dff['Name'].unique(): # To be used to ges single lines per activity
+                #    dfn = dff[dff['Name'] ==  name]
+                names = dff['Name'].unique()
+                for name in names:
+                    dfn = dff[dff['Name'] == name]
+                    data.append(go.Scattermapbox(
+                        lat=dfn['Lat'],
+                        lon=dfn['Long'],
+                        mode='lines',
+                        customdata=dfn[['Name', output_variable, 'Distance', 'Duration']],
+                        hovertemplate=
+                        "<b>%{customdata[0]}</b><br>" +
+                        "<b>" + output_variable + ": %{customdata[1]}</b><br><br>" +
+                        "Distance: %{customdata[2]:,.2f} km<br>" +
+                        "Duration: %{customdata[3]:.2f} min<br>" +
+                        "<extra></extra>",
+                        name='Lines', ))
         if value == 'line':
             print('line')
             dff.loc[dff["Distance"] < 0.1 * max(1, 50 / 5), "Lat"] = np.NAN
@@ -470,8 +528,6 @@ def update_Map_plotting_type(plot, activity_name, variable,
         if value == 'polygon':
             with open("./polygons.res", "rb") as fp:
                 polygons_list = pickle.load(fp)
-            with open("./activity_polygons.res", "rb") as fp:
-                activity_polygons = pickle.load(fp)
             polygons_list.reverse()
             gdf = gpd.GeoSeries(polygons_list)
             gdf.crs = "epsg:4326"
@@ -507,31 +563,29 @@ def update_Map_plotting_type(plot, activity_name, variable,
                 hoverlabel=None
             ))
 
-        if value == 'tiles':
-            with open('Tiles.res', "rb") as fp:
-                all_Tiles = pickle.load(fp)
-            tiles = all_Tiles[zoom]
-            x = []
-            y = []
-            for tile in tiles:
-                lon, lat = Tiles.tile_outline(tile, zoom)
-                x.append(None)
-                y.append(None)
-                x.extend(lon)
-                y.extend(lat)
+        if value == 'Max Square':
+            if imported_Tiles.__len__() == 0:
+                print('Import Tiles')
+                with open('Tiles.res', "rb") as fp:
+                    imported_Tiles = pickle.load(fp)
+            gdf = imported_Tiles[3][zoom]
+                #all_Tiles = res[0][zoom]
+            #gdf = Tiles.compute_max_square(all_Tiles, zoom)
 
-            data.append(go.Scattermapbox(
-                lon=x,
-                lat=y,
-                mode='lines',
-                fillcolor='green',
-                line=dict(color='green'),
-                name='all',
-                hoverinfo=None,
-                hoverlabel=None
-            ))
+            polygons_plot = go.Choroplethmapbox(geojson=json.loads(gdf.to_json()),
+                                                locations=gdf.index, z=gdf['area'],
+                                                colorscale="rainbow",
+                                                customdata=gdf['area'],
+                                                marker_opacity=0.6,
+                                                #zorder=1,
+                                                hovertemplate=
+                                                "<b>Square size: %{customdata:.0f}</b><br>" +
+                                                "<extra></extra>",
+                                                showscale=False)
+            #print('Finshed Max_Square calculation')
+            data.append(polygons_plot)
         if value == 'activity tiles':
-            tiles = Tiles.check_tiles(zoom, dff)
+            tiles = Tiles.check_tiles_fast(zoom, dff)
             x = []
             y = []
             for tile in tiles:
@@ -551,13 +605,102 @@ def update_Map_plotting_type(plot, activity_name, variable,
                 hoverinfo=None,
                 hoverlabel=None
             ))
+        if value == 'polygon tiles':
+            gdf = get_activity_gdf(dff,zoom)
 
+            polygons_plot = go.Choroplethmapbox(geojson=json.loads(gdf.to_json()),
+                                                locations=gdf.index, z=get_log_value(gdf['area']),
+                                                colorscale="Viridis",
+                                                customdata=gdf['area'],
+                                                marker_opacity=0.6,
+                                                hovertemplate=
+                                                "<b>%{customdata:.2f} km^2</b><br>" +
+                                                "<extra></extra>",
+                                                showscale=show_legend)
+            data.append(polygons_plot)
+
+        if value == 'all polygon tiles':
+            if imported_Tiles.__len__() == 0:
+                print('Import Tiles')
+                with open('Tiles.res', "rb") as fp:
+                    imported_Tiles = pickle.load(fp)
+            gdf = imported_Tiles[2][zoom]
+
+            polygons_plot = go.Choroplethmapbox(geojson=json.loads(gdf.to_json()),
+                                                locations=gdf.index, z=get_log_value(gdf['area']),
+                                                colorscale="Viridis",
+                                                customdata=gdf['area'],
+                                                marker_opacity=opacity_scale(gdf['area'], 0.1, 0.8),
+                                                hovertemplate=
+                                                "<b>%{customdata:.2f} km</b><br>" +
+                                                "<extra></extra>",
+                                                showscale=False)
+            data.append(polygons_plot)
+
+        if value == 'cluster':
+                print('Cluster')
+                if imported_Tiles.__len__() == 0:
+                    print('Import Tiles')
+                    with open('Tiles.res', "rb") as fp:
+                        imported_Tiles = pickle.load(fp)
+                cluster = imported_Tiles[5][zoom]
+                tiles = imported_Tiles[0][zoom]
+                gdf = imported_Tiles[2][zoom]
+                #print(tiles)
+                #print(Tiles.compute_cluster(tiles))
+
+                polygons_plot = go.Choroplethmapbox(geojson=json.loads(gdf.to_json()),
+                                                    locations=gdf.index, z=cluster,
+                                                    colorscale="Viridis",
+                                                    customdata=tiles,
+                                                    marker_opacity=opacity_scale(gdf['area'], 0.1, 0.8),
+                                                    hovertemplate=
+                                                    "<b>%{customdata}</b><br>" +
+                                                    "<b>Cluster Size = %{z}</b><br>" +
+                                                    "<extra></extra>",
+                                                    showscale=False)
+                data.append(polygons_plot)
     print(data.__len__())
 
     fig = Patch()
     fig['data'] = data
     return fig
 
+
+def get_activity_gdf(dff,zoom):
+    from shapely.geometry import LineString
+    from shapely.ops import polygonize
+    tiles = Tiles.check_tiles_fast(zoom, dff)
+    polygons_list = []
+    for tile in tiles:
+        lon, lat = Tiles.tile_outline(tile, zoom)
+        nodes = []
+        nodes.append(lon)
+        nodes.append(lat)
+        nodes = np.transpose(nodes)
+        line = LineString(nodes)
+        polygon = polygonize(line)
+        polygons_list.append(polygon[0])
+    gdf = gpd.GeoSeries(polygons_list)
+    gdf.crs = "epsg:4326"
+    areas = gdf.to_crs({'init': 'epsg:32633'}) \
+        .map(lambda p: p.area / 10 ** 6)
+    gdf = gpd.GeoDataFrame(gdf)
+    gdf = gdf.assign(area=areas)
+    gdf = gdf.set_geometry(0)
+    return gdf
+
+
+def get_log_value(value):
+    log_value = np.log2(value)
+    log_value = log_value.replace(-np.inf, np.nan)
+    log_value = log_value.fillna(min(log_value.dropna()))
+    return log_value
+
+def opacity_scale(value, min_value, max_value):
+    log_value = get_log_value(value)
+    return_value = min_value + (max_value - min_value) * (log_value-min(log_value)) / (max(log_value)-min(log_value))
+    return return_value
 
 @callback(
     Output('x-time-series', 'figure'),
